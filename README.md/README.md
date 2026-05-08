@@ -28,3 +28,12 @@ A Raspberry Pi + ESP32 system that detects WiFi device crowds and automatically 
 
 ## Author
 Eldard
+
+## 🔧 Troubleshooting
+
+### UART Communication Issues
+If the motor isn't responding or crowd detection seems stuck:
+
+1. **Test Pi ↔ ESP32 connection**:
+   ```bash
+   python3 software/debug_uart_ping.py
