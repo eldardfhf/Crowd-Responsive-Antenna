@@ -1,48 +1,96 @@
-/**
- * DEBUG: ESP32 UART Echo for Pi Communication Test
- * ------------------------------------------------
- * Upload this to ESP32 to enable simple ping/pong testing with Raspberry Pi.
- * 
- * Wiring:
- *   Pi GPIO 14 (TX) → ESP32 GPIO 16 (RX)
- *   Pi GPIO 15 (RX) → ESP32 GPIO 17 (TX)
- *   Pi GND          → ESP32 GND
- * 
- * Usage:
- *   1. Upload this code to ESP32 via Arduino IDE
- *   2. Run software/debug_uart_ping.py on Pi
- *   3. Expected: "Sent: HELLO" → "Received: ESP32 ACK: HELLO"
- * 
- * Serial Monitor (115200 baud) shows debug output for troubleshooting.
- */
+#include <AccelStepper.h>
 
-#define RXD2 16  // ESP32 RX pin (connects to Pi TX)
-#define TXD2 17  // ESP32 TX pin (connects to Pi RX)
+// Pin Definitions
+#define STEP_PIN 18
+#define DIR_PIN 19
+#define MS1_PIN 25
+#define MS2_PIN 26
+#define MS3_PIN 23
+
+// Create stepper instance
+AccelStepper stepper(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
 
 void setup() {
-  // Initialize USB serial for debugging
+  // Stabilize pins to prevent jitter
+  pinMode(STEP_PIN, OUTPUT);
+  pinMode(DIR_PIN, OUTPUT);
+  digitalWrite(STEP_PIN, LOW);
+  digitalWrite(DIR_PIN, LOW);
+
+  // Configure microstepping (1/16 step)
+  pinMode(MS1_PIN, OUTPUT);
+  pinMode(MS2_PIN, OUTPUT);
+  pinMode(MS3_PIN, OUTPUT);
+  digitalWrite(MS1_PIN, HIGH);
+  digitalWrite(MS2_PIN, HIGH);
+  digitalWrite(MS3_PIN, HIGH);
+
+  // Initialize UART for Pi communication (115200 baud)
+  Serial2.begin(115200, SERIAL_8N1, 16, 17);
+  
+  // USB Serial for debugging
   Serial.begin(115200);
-  
-  // Initialize UART2 for Pi communication
-  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
-  
-  delay(1000);  // Let connections stabilize
-  Serial.println("✅ ESP32 Ready - Listening on Serial2 (GPIO 16/17)");
+
+  // Configure stepper
+  stepper.setMaxSpeed(500);
+  stepper.setAcceleration(250);
+
+  delay(1000);
+  Serial.println("✅ ESP32 Ready - Listening for ROTATE commands");
+  Serial2.println("ESP32_READY");
 }
 
 void loop() {
-  // Check for messages from Pi
+  // Check for incoming commands from Pi
   if (Serial2.available()) {
-    // Read the message (up to newline)
     String msg = Serial2.readStringUntil('\n');
+    msg.trim();  // Remove whitespace
     
-    // Echo back to Pi with acknowledgment
-    Serial2.println("ESP32 ACK: " + msg);
+    Serial.print("📥 Received from Pi: ");
+    Serial.println(msg);
     
-    // Print to USB Serial Monitor for debugging
-    Serial.print("📥 From Pi: ");
-    Serial.println(msg);
-    Serial.print("📤 Reply: ESP32 ACK: ");
-    Serial.println(msg);
+    // Handle ROTATE command
+    if (msg.startsWith("ROTATE ")) {
+      // Extract angle number
+      int angle = msg.substring(7).toInt();
+      
+      Serial.print("🔄 Rotating to ");
+      Serial.print(angle);
+      Serial.println("°...");
+      
+      // Perform rotation
+      rotateTo(angle);
+      
+      // Send acknowledgment back to Pi
+      Serial2.println("ROTATED");
+      Serial.println("✅ Sent: ROTATED");
+    }
+    // Handle HELLO command (for testing)
+    else if (msg == "HELLO") {
+      Serial2.println("ESP32_ACK: HELLO");
+      Serial.println("Sent: ESP32_ACK: HELLO");
+    }
+    // Handle unknown commands
+    else {
+      Serial2.println("UNKNOWN_COMMAND");
+      Serial.print("⚠️ Unknown command: ");
+      Serial.println(msg);
+    }
   }
+}
+
+void rotateTo(int targetAngle) {
+  // Calculate steps: 200 steps/rev * 16 microsteps = 3200 steps/rev
+  long steps = map(targetAngle, 0, 360, 0, 3200);
+  
+  stepper.moveTo(steps);
+  
+  // Run until target is reached
+  while (stepper.distanceToGo() != 0) {
+    stepper.run();
+  }
+  
+  Serial.print("   Motor reached ");
+  Serial.print(targetAngle);
+  Serial.println("°");
 }
